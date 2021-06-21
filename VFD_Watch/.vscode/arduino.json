@@ -1,0 +1,6 @@
+{
+    "board": "arduino:avr:nano",
+    "programmer": "arduino:usbasp",
+    "configuration": "cpu=atmega328",
+    "sketch": "VFD_Watch.ino"
+}
