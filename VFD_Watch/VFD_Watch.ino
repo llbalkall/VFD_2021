@@ -366,6 +366,8 @@ void leds_turn_off(){
 }
 
 void leds_go(int delta, int wave_length, int window){
+  wave_length*=2;
+  delta = 0;
   a_led(LED_1_PIN, 0, wave_length, window);
   a_led(LED_2_PIN, delta, wave_length, window);
   a_led(LED_3_PIN, 2*delta, wave_length, window);
