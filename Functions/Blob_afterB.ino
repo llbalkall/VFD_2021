@@ -1422,24 +1422,22 @@ void show_displayed_character_array() {
 }
 
 ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
-  int first = 9;
-  int secondd = 10;
-  int third = 19;
-  int last = 20;
-  if ((vfd_heat_counter >= first && vfd_heat_counter < secondd) || vfd_heat_counter >= third){
+  if ((vfd_heat_counter >= 4 && vfd_heat_counter < 10) || vfd_heat_counter >= 14){
     digitalWrite(VFD_HEAT1_PIN, LOW);
     digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter < first) {
+  } else if (vfd_heat_counter < 4) {
     digitalWrite(VFD_HEAT1_PIN, HIGH);
     digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter >= secondd && vfd_heat_counter < third){
+  } else if (vfd_heat_counter >= 10 && vfd_heat_counter < 14){
     digitalWrite(VFD_HEAT1_PIN, HIGH);
     digitalWrite(VFD_HEAT2_PIN, LOW);
   }
   vfd_heat_counter += 1;
-  if (vfd_heat_counter == last) {
+  if (vfd_heat_counter == 20) {
       vfd_heat_counter = 0;
+      
   }
+  //display_hertz_of_function();
 }
 
 void set_vfd_cell(uint8_t cell_num, /*char character_to_set*/ uint16_t segment_pattern, bool include_colon) {
