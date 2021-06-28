@@ -1,5 +1,3 @@
-
-  
 #include <EEPROMex.h>
 #include <EEPROMVar.h>
 #include <Wire.h>
@@ -7,27 +5,8 @@
 #include <avr/interrupt.h> 
 #include <functions.h>
 
-#define DS3231_I2C_ADDRESS 0x68
-/* mapping of 6920's OUT pins to the bits in shift register */
-/*#define OUT0  0x0002
-#define OUT1  0x0004
-#define OUT2  0x0008
-#define OUT3  0x0010
-#define OUT4  0x0020
-#define OUT5  0x0040
-#define OUT6  0x0080
-#define OUT7  0x0100
-#define OUT8  0x0200
-#define OUT9  0x0400
-#define OUT10 0x0800
-#define OUT11 0x0001
-#define vfd_segment_A     OUT11
-#define vfd_segment_B     OUT8
-#define vfd_segment_C     OUT2
-#define vfd_segment_D     OUT3
-#define vfd_segment_E     OUT1
-#define vfd_segment_F     OUT6
-#define vfd_segment_G     OUT9*/
+//#define DS3231_I2C_ADDRESS 0x68 //DS3231
+
 #define vfd_multiplexer_1    OUT4   // 10 h
 #define vfd_multiplexer_2    OUT0   // 1  h
 #define vfd_multiplexer_3    OUT5   // :
@@ -78,9 +57,6 @@ const uint16_t SETTING_NAME_TEMPERATURE = 18;
 const uint16_t SETTING_TEMPERATURE = 19;
 const uint16_t STOPWATCH = 20;
 
-
-
-
 const int BUTTON_HOLD_DURATION_MINIMUM = 1000; // milliseconds
 const short COLON_BLINK_PERIOD = 250;          // also ms
 const char NUM_CONTROL_STATES = 20;
@@ -100,16 +76,15 @@ const uint16_t LED_FLASH_INTERVAL = 150;
 uint16_t char_to_segments(char inputChar);
 void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon);
 void update_button_state();
-void setDS3231time(byte second, byte minute, byte hour, 
-byte dayOfWeek, byte dayOfMonth, byte month, byte year);
-void readDS3231time(byte *second, byte *minute, byte *hour,
-byte *dayOfWeek, byte *dayOfMonth, byte *month, byte *year);
+//void setDS3231time(byte second, byte minute, byte hour, 
+//byte dayOfWeek, byte dayOfMonth, byte month, byte year);
+//void readDS3231time(byte *second, byte *minute, byte *hour,
+//byte *dayOfWeek, byte *dayOfMonth, byte *month, byte *year);
 void show_displayed_character_array();
 void run_control_state();
 void read_current_time();
 void power_board_down(bool permit_wakeup);
 void display_stopwatch();
-void read_light_level();
 void read_battery_level();
 void flash_leds();
 
@@ -151,11 +126,12 @@ bool vfd_blinking_noncolon_grids[4] = {false, false, false, false};
 const uint16_t vfd_cells[5] = {vfd_multiplexer_1, vfd_multiplexer_2, vfd_multiplexer_3, vfd_multiplexer_4, vfd_multiplexer_5};
 const uint16_t MONTH_LENGTHS[13] = {0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; 
 
+DS3231Manager ds3231Manager;
 
-void setup() {
+void setup() { //input, output init, setting up interrupts, timers
   
-
- 
+  
+  
   // Temperature
   pinMode(TEMPERATURE_PIN, INPUT);
   temperature_unit = EEPROM.read(temperature_unit_eeprom_address);
@@ -207,7 +183,7 @@ void setup() {
   power_board_down(true);
 }
 
-void loop() {
+void loop() { //the soul, everything
   current_millis = millis();
   //read_battery_level();
   if (battery_level == 4) read_battery_level();
@@ -226,7 +202,6 @@ void loop() {
       update_button_state();
       read_current_time();
       select_control_state();
-      read_light_level();
       show_displayed_character_array();
     }
     if (battery_level == 1 || battery_level == 2) flash_leds();
@@ -239,7 +214,7 @@ void loop() {
   }
 }
 
-void update_button_state() {
+void update_button_state() {//button input
   bool button_1_released = false;
   bool button_2_released = false;
   if (digitalRead(BUTTON_2_PIN) == LOW) button_hold_counts[0] += 1;
@@ -275,8 +250,8 @@ void update_button_state() {
     ignore_next_button_release = false;
   }
 }
-void read_current_time() {
-  readDS3231time(&current_time[0], &current_time[1], &current_time[2], &current_time[3],
+void read_current_time() { //DS32131
+  ds3231Manager.readDS3231time(&current_time[0], &current_time[1], &current_time[2], &current_time[3],
   &current_time[4], &current_time[5], &current_time[6]);
 }
 void select_control_state() {
@@ -334,46 +309,30 @@ void select_control_state() {
       }
       break;
     case ENTER_SETTINGS:
-      vfd_displayed_characters[0] = 'S';
-      vfd_displayed_characters[1] = 'E';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 't';
-      vfd_displayed_characters[4] = ' ';
+      update_vfd_char_array(vfd_displayed_characters, "SE t ");
       if (button_state == 1) control_state = DISPLAY_TIME;
       else if (button_state == 2) control_state = SETTING_NAME_HOUR;
       break;
     case SETTING_NAME_HOUR:
-      vfd_displayed_characters[0] = 'H';
-      vfd_displayed_characters[1] = 'o';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'u';
-      vfd_displayed_characters[4] = 'r';
+      update_vfd_char_array(vfd_displayed_characters, "Ho ur");
       if (button_state == 1) { 
         control_state = SETTING_HOUR;
         setting_value = current_time[2];
       } else if (button_state == 2) control_state = SETTING_NAME_MINUTE;
       break;
     case SETTING_HOUR:
-      vfd_displayed_characters[0] = setting_value / 10;
-      vfd_displayed_characters[1] = setting_value % 10;
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = ' ';
-      vfd_displayed_characters[4] = ' ';
+      update_vfd_char_array(vfd_displayed_characters, setting_value / 10, setting_value % 10, ' ', ' ', ' ');
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 24) setting_value = 0;
       }
       else if (button_state == 1) {
-        setDS3231time(0, current_time[1], setting_value, current_time[3], current_time[4], current_time[5], current_time[6]);
+        ds3231Manager.setDS3231time(0, current_time[1], setting_value, current_time[3], current_time[4], current_time[5], current_time[6]);
         control_state = SETTING_NAME_MINUTE;
       }
       break;
     case SETTING_NAME_MINUTE:
-      vfd_displayed_characters[0] = 'N';
-      vfd_displayed_characters[1] = 'N';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'i';
-      vfd_displayed_characters[4] = 'n';
+      update_vfd_char_array(vfd_displayed_characters, "NN in");
       if (button_state == 1) { 
         control_state = SETTING_MINUTE;
         setting_value = current_time[1];
@@ -384,26 +343,18 @@ void select_control_state() {
       }
       break;
     case SETTING_MINUTE:
-      vfd_displayed_characters[0] = ' ';
-      vfd_displayed_characters[1] = ' ';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = setting_value / 10;
-      vfd_displayed_characters[4] = setting_value % 10;
+      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 60) setting_value = 0;
       }
       else if (button_state == 1) {
-        setDS3231time(0, setting_value, current_time[2], current_time[3], current_time[4], current_time[5], current_time[6]);
+        ds3231Manager.setDS3231time(0, setting_value, current_time[2], current_time[3], current_time[4], current_time[5], current_time[6]);
         control_state = SETTING_NAME_DAY_OF_WEEK;
       }
       break;
     case SETTING_NAME_DAY_OF_WEEK:
-      vfd_displayed_characters[0] = 'd';
-      vfd_displayed_characters[1] = 'o';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'U';
-      vfd_displayed_characters[4] = 'U';
+      update_vfd_char_array(vfd_displayed_characters, "do UU");
       if (button_state == 1) { 
         control_state = SETTING_DAY_OF_WEEK;
         setting_value = current_time[3];
@@ -417,16 +368,12 @@ void select_control_state() {
         if (setting_value == 8) setting_value = 1;
       }
       else if (button_state == 1) {
-        setDS3231time(current_time[0], current_time[1], current_time[2], setting_value, current_time[4], current_time[5], current_time[6]);
+        ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], setting_value, current_time[4], current_time[5], current_time[6]);
         control_state = SETTING_NAME_DAY_OF_MONTH;
       }
       break;
     case SETTING_NAME_DAY_OF_MONTH:
-      vfd_displayed_characters[0] = 'd';
-      vfd_displayed_characters[1] = 'o';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'N';
-      vfd_displayed_characters[4] = 'N';
+      update_vfd_char_array(vfd_displayed_characters, "do NN");
       if (button_state == 1) { 
         control_state = SETTING_DAY_OF_MONTH;
         setting_value = current_time[4];
@@ -434,11 +381,7 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_MONTH;
       break;
     case SETTING_DAY_OF_MONTH:
-      vfd_displayed_characters[0] = ' ';
-      vfd_displayed_characters[1] = ' ';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = setting_value / 10;
-      vfd_displayed_characters[4] = setting_value % 10;
+      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == (MONTH_LENGTHS[current_time[5]] + 1)) setting_value = 1;
@@ -446,16 +389,12 @@ void select_control_state() {
         if (current_time[6] % 4 == 0 && current_time[5] == 2 && setting_value == 29) setting_value = 1;
       }
       else if (button_state == 1) {
-        setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], setting_value, current_time[5], current_time[6]);
+        ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], setting_value, current_time[5], current_time[6]);
         control_state = SETTING_NAME_MONTH;
       }
       break;
     case SETTING_NAME_MONTH:
-      vfd_displayed_characters[0] = 'N';
-      vfd_displayed_characters[1] = 'N';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'o';
-      vfd_displayed_characters[4] = 'n';
+      update_vfd_char_array(vfd_displayed_characters, "NN on");
       if (button_state == 1) { 
         control_state = SETTING_MONTH;
         setting_value = current_time[5];
@@ -463,26 +402,18 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_YEAR;
       break;
     case SETTING_MONTH:
-      vfd_displayed_characters[0] = setting_value / 10;
-      vfd_displayed_characters[1] = setting_value % 10;
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = ' ';
-      vfd_displayed_characters[4] = ' ';
+      update_vfd_char_array(vfd_displayed_characters, setting_value / 10, setting_value % 10, ' ', ' ', ' ');
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 13) setting_value = 1;
       }
       else if (button_state == 1) {
-        setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], setting_value, current_time[6]);
+        ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], setting_value, current_time[6]);
         control_state = SETTING_NAME_YEAR;
       }
       break;
     case SETTING_NAME_YEAR:
-      vfd_displayed_characters[0] = 'Y';
-      vfd_displayed_characters[1] = 'E';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'A';
-      vfd_displayed_characters[4] = 'r';
+      update_vfd_char_array(vfd_displayed_characters, "YE Ar");
       if (button_state == 1) { 
         control_state = SETTING_YEAR;
         setting_value = current_time[6];
@@ -490,35 +421,23 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_TEMPERATURE;
       break;
     case SETTING_YEAR:
-      vfd_displayed_characters[0] = '2';
-      vfd_displayed_characters[1] = '0';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = setting_value / 10;
-      vfd_displayed_characters[4] = setting_value % 10;
+      update_vfd_char_array(vfd_displayed_characters, '2', '0', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 100) setting_value = 20;
       }
       else if (button_state == 1) {
-        setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5], setting_value);
+        ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5], setting_value);
         control_state = SETTING_NAME_TEMPERATURE;
       }
       break;
     case SETTING_NAME_TEMPERATURE:
-      vfd_displayed_characters[0] = 't';
-      vfd_displayed_characters[1] = 'E';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'n';
-      vfd_displayed_characters[4] = 'n';
+      update_vfd_char_array(vfd_displayed_characters, "tE nn");
       if (button_state == 1) control_state = SETTING_TEMPERATURE;
       else if (button_state == 2) control_state = SETTING_NAME_HOUR;
       break;
     case SETTING_TEMPERATURE:
-      vfd_displayed_characters[0] = ' ';
-      vfd_displayed_characters[1] = ' ';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = '*'; 
-      vfd_displayed_characters[4] = temperature_unit;
+      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', '*', temperature_unit);
       if (button_state == 1) {
         control_state = SETTING_NAME_HOUR;
         EEPROM.write(temperature_unit_eeprom_address, temperature_unit);
@@ -532,160 +451,79 @@ void select_control_state() {
   if (button_state == 4) control_state = ENTER_SETTINGS;
   else if (button_state == 3) control_state = STOPWATCH;
   if (battery_level == 1 && current_millis - wake_board_millis < LOW_BATTERY_MESSAGE_DISPLAY_DURATION) {
-    /*vfd_displayed_characters[0] = 'L';
-    vfd_displayed_characters[1] = 'b';
-    vfd_displayed_characters[2] = ' ';
-    vfd_displayed_characters[3] = 'A'; 
-    vfd_displayed_characters[4] = 't';*/
-    vfd_displayed_characters[0] = 'B';
-    vfd_displayed_characters[1] = 'A';
-    vfd_displayed_characters[2] = ' ';
-    vfd_displayed_characters[3] = 'L'; 
-    vfd_displayed_characters[4] = 'o';
+    update_vfd_char_array(vfd_displayed_characters, "BA Lo");
   }
 }
-void display_stopwatch() {
+
+void display_stopwatch() {//display
   if (stopwatch_running) {
     int elapsed_seconds = ((current_time[2] - stopwatch_times[2]) * 3600) + ((current_time[1] - stopwatch_times[1]) * 60) + (current_time[0] - stopwatch_times[0]);
     char elapsed_minutes = elapsed_seconds / 60;
     if (elapsed_minutes > 99) elapsed_minutes = 99;
     char remaining_seconds = elapsed_seconds % 60;
-    vfd_displayed_characters[0] = elapsed_minutes / 10;
-    vfd_displayed_characters[1] = elapsed_minutes % 10;
-    vfd_displayed_characters[2] = 1;
-    vfd_displayed_characters[3] = remaining_seconds / 10; 
-    vfd_displayed_characters[4] = remaining_seconds % 10;
+    update_vfd_char_array(vfd_displayed_characters, elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
   } else if (stopwatch_times[0] != 0 || stopwatch_times[1] != 0 || stopwatch_times[2] != 0){
     colon_steady = true;
     int elapsed_seconds = (stopwatch_times[2] * 3600) + (stopwatch_times[1] * 60) + stopwatch_times[0];
     char elapsed_minutes = elapsed_seconds / 60;
     if (elapsed_minutes > 99) elapsed_minutes = 99;
     char remaining_seconds = elapsed_seconds % 60;
-    vfd_displayed_characters[0] = elapsed_minutes / 10;
-    vfd_displayed_characters[1] = elapsed_minutes % 10;
-    vfd_displayed_characters[2] = 1;
-    vfd_displayed_characters[3] = remaining_seconds / 10; 
-    vfd_displayed_characters[4] = remaining_seconds % 10;
+    update_vfd_char_array(vfd_displayed_characters, elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
+  
   } else {
     colon_steady = true;
-    vfd_displayed_characters[0] = 0;
-    vfd_displayed_characters[1] = 0;
-    vfd_displayed_characters[2] = 1;
-    vfd_displayed_characters[3] = 0; 
-    vfd_displayed_characters[4] = 0;
+    update_vfd_char_array(vfd_displayed_characters, 0, 0, 1, 0, 0);
+  
   }
 }
-void display_hour_minute() {
+void display_hour_minute() {//display
   char hour_digit_1   = current_time[2] / 10;
   char hour_digit_2   = current_time[2] % 10;
   char minute_digit_1 = current_time[1] / 10;
   char minute_digit_2 = current_time[1] % 10;
-  vfd_displayed_characters[0] = hour_digit_1;
-  vfd_displayed_characters[1] = hour_digit_2;
-  vfd_displayed_characters[2] = 1;
-  vfd_displayed_characters[3] = minute_digit_1;
-  vfd_displayed_characters[4] = minute_digit_2;
+  update_vfd_char_array(vfd_displayed_characters, hour_digit_1, hour_digit_2, 1, minute_digit_1, minute_digit_2);
 }
-void display_date() {
+
+void display_date() {//display
   colon_steady = true;
   char month_digit_1   = current_time[5] / 10;
   char month_digit_2   = current_time[5] % 10;
   char day_of_month_digit_1 = current_time[4] / 10;
   char day_of_month_digit_2 = current_time[4] % 10;
-  vfd_displayed_characters[0] = month_digit_1;
-  vfd_displayed_characters[1] = month_digit_2;
-  vfd_displayed_characters[2] = 1;
-  vfd_displayed_characters[3] = day_of_month_digit_1;
-  vfd_displayed_characters[4] = day_of_month_digit_2;
+  update_vfd_char_array(vfd_displayed_characters, month_digit_1, month_digit_2, 1, day_of_month_digit_1, day_of_month_digit_2);
 }
-void display_seconds() {
+
+void display_seconds() {//display
   char seconds_digit_1 = current_time[0] / 10;
   char seconds_digit_2 = current_time[0] % 10;
-  vfd_displayed_characters[0] = ' ';
-  vfd_displayed_characters[1] = ' ';
-  vfd_displayed_characters[2] = ' ';
-  vfd_displayed_characters[3] = seconds_digit_1;
-  vfd_displayed_characters[4] = seconds_digit_2;
+  update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', seconds_digit_1, seconds_digit_2);
 }
-void display_day_of_week(byte day) {
-  switch(day) {
-    case 1:
-      vfd_displayed_characters[0] = 'N';
-      vfd_displayed_characters[1] = 'N';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'o';
-      vfd_displayed_characters[4] = 'n';
-    break;
-    case 2:
-      vfd_displayed_characters[0] = 't';
-      vfd_displayed_characters[1] = 'u';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'E';
-      vfd_displayed_characters[4] = ' ';
-    break;
-    case 3:
-      vfd_displayed_characters[0] = 'U';
-      vfd_displayed_characters[1] = 'U';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'E';
-      vfd_displayed_characters[4] = 'd';
-    break;
-    case 4:
-      vfd_displayed_characters[0] = 't';
-      vfd_displayed_characters[1] = 'h';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'u';
-      vfd_displayed_characters[4] = ' ';
-    break;
-    case 5:
-      vfd_displayed_characters[0] = 'F';
-      vfd_displayed_characters[1] = 'r';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'i';
-      vfd_displayed_characters[4] = ' ';
-    break;
-    case 6:
-      vfd_displayed_characters[0] = 's';
-      vfd_displayed_characters[1] = 'A';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 't';
-      vfd_displayed_characters[4] = ' ';
-    break;
-    case 7:
-      vfd_displayed_characters[0] = 'S';
-      vfd_displayed_characters[1] = 'u';
-      vfd_displayed_characters[2] = ' ';
-      vfd_displayed_characters[3] = 'n';
-      vfd_displayed_characters[4] = ' ';
-    break;
-  }
+
+char* days_of_week[]= {"NN on", "tu E ", "UU Ed", "th u ", "Fr i ", "SA t ", "Su n "};
+void display_day_of_week(byte day) {//display
+  update_vfd_char_array(vfd_displayed_characters, days_of_week[day-1]);
 }
-void display_temperature() {
+
+void display_temperature() {//display and get temp
   float current_temp = read_adc_to_celsius();
   if (temperature_unit == 'F') {
     current_temp = celsius_to_fahrenheit(current_temp);
     uint8_t fh_hundreds = current_temp / 100;
     uint8_t fh_tens     = int(current_temp / 10) % 10;
     uint8_t fh_ones     = int(current_temp)  % 10;
-    vfd_displayed_characters[0] = fh_hundreds;
-    vfd_displayed_characters[1] = fh_tens;
-    vfd_displayed_characters[2] = ' ';
-    vfd_displayed_characters[3] = fh_ones;
+    update_vfd_char_array(vfd_displayed_characters, fh_hundreds, fh_tens, ' ', fh_ones, ' ');
   } else {
     colon_steady = true;
     uint8_t celsius_tens   = current_temp / 10;
     uint8_t celsius_ones   = int(current_temp) % 10;
-    vfd_displayed_characters[0] = celsius_tens;
-    vfd_displayed_characters[1] = celsius_ones;
-    vfd_displayed_characters[2] = ' ';
-    vfd_displayed_characters[3] = '*';
+    update_vfd_char_array(vfd_displayed_characters, celsius_tens, celsius_ones, ' ', '*', ' ');
   }
   vfd_displayed_characters[4] = temperature_unit;
 }
 
 // This function runs when the board's sleep is interrupted by button 1 press
 // Declare all variables modified by this as "volatile"
-ISR(PCINT0_vect) {
+ISR(PCINT0_vect) {    // wake up
   // Flag to indicate first button press (waking up the board)
   // This button press should not be processed for normal state changes
   if (board_sleeping) {
@@ -703,26 +541,27 @@ ISR(PCINT0_vect) {
     digitalWrite(POWER_MEASURE_PIN, HIGH);
   }
 }
-void power_board_down(bool permit_wakeup) {
+
+void power_board_down(bool permit_wakeup) {//saving data, turning down GPIO pins, putting the board to sleep
   // Save current setting data
   switch (control_state) {
     case SETTING_HOUR:
-      setDS3231time(0, current_time[1], setting_value, current_time[3], current_time[4], current_time[5], current_time[6]);
+      ds3231Manager.setDS3231time(0, current_time[1], setting_value, current_time[3], current_time[4], current_time[5], current_time[6]);
       break;
     case SETTING_MINUTE:
-      setDS3231time(0, setting_value, current_time[2], current_time[3], current_time[4], current_time[5], current_time[6]);
+      ds3231Manager.setDS3231time(0, setting_value, current_time[2], current_time[3], current_time[4], current_time[5], current_time[6]);
       break;
     case SETTING_DAY_OF_WEEK:
-      setDS3231time(current_time[0], current_time[1], current_time[2], setting_value, current_time[4], current_time[5], current_time[6]);
+      ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], setting_value, current_time[4], current_time[5], current_time[6]);
       break;
     case SETTING_DAY_OF_MONTH:
-      setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], setting_value, current_time[5], current_time[6]);
+      ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], setting_value, current_time[5], current_time[6]);
       break;
     case SETTING_MONTH:
-      setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], setting_value, current_time[6]);
+      ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], setting_value, current_time[6]);
       break;
     case SETTING_YEAR:
-      setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5], setting_value);
+      ds3231Manager.setDS3231time(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5], setting_value);
       break;
     case SETTING_TEMPERATURE:
       EEPROM.write(temperature_unit_eeprom_address, temperature_unit);
@@ -764,8 +603,7 @@ void power_board_down(bool permit_wakeup) {
   sleep_cpu();                   //go to sleep
 }
 
-
-void show_displayed_character_array() {
+void show_displayed_character_array() {//display
   if (vfd_current_cell_id == 2) {
     vfd_current_cell_id += 1;
 }
@@ -782,23 +620,28 @@ void show_displayed_character_array() {
 }
 
 ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
-  if ((vfd_heat_counter >= 4 && vfd_heat_counter < 10) || vfd_heat_counter >= 14){
+  int percent = 80;
+  int secondd = 10;
+  int last = 20;
+  int first = secondd * percent / 100;
+  int third = last * percent /100 ;
+  if ((vfd_heat_counter >= first && vfd_heat_counter < secondd) || vfd_heat_counter >= third){
     digitalWrite(VFD_HEAT1_PIN, LOW);
     digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter < 4) {
+  } else if (vfd_heat_counter < first) {
     digitalWrite(VFD_HEAT1_PIN, HIGH);
     digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter >= 10 && vfd_heat_counter < 14){
+  } else if (vfd_heat_counter >= secondd && vfd_heat_counter < third){
     digitalWrite(VFD_HEAT1_PIN, HIGH);
     digitalWrite(VFD_HEAT2_PIN, LOW);
   }
   vfd_heat_counter += 1;
-  if (vfd_heat_counter == 20) {
+  if (vfd_heat_counter == last) {
       vfd_heat_counter = 0;
   }
 }
 
-void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon) {
+void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon) {//display
   if (cell_num > 4) return;
   uint16_t segment_pattern = char_to_segments(character_to_set);
   segment_pattern |= vfd_cells[cell_num];
@@ -826,223 +669,7 @@ void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon) {
   
 }
 
-/*uint16_t char_to_segments(char inputChar) {
-  uint16_t outputSegCode = 0x0000;
-  switch(inputChar) {
-    case 0:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F;
-    break;
-    case 1:
-      outputSegCode = vfd_segment_B | vfd_segment_C;
-    break;
-    case 2:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_G | vfd_segment_E | vfd_segment_D;
-    break;
-    case 3:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_G | vfd_segment_D;
-    break;
-    case 4:
-      outputSegCode = vfd_segment_B | vfd_segment_C | vfd_segment_F | vfd_segment_G;
-    break;
-    case 5:
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case 6:
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 7:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C;
-    break;
-    case 8:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 9:
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case '0':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F;
-    break;
-    case '1':
-      outputSegCode = vfd_segment_B | vfd_segment_C;
-    break;
-    case '2':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_G | vfd_segment_E | vfd_segment_D;
-    break;
-    case '3':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_G | vfd_segment_D;
-    break;
-    case '4':
-      outputSegCode = vfd_segment_B | vfd_segment_C | vfd_segment_F | vfd_segment_G;
-    break;
-    case '5':
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case '6':
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case '7':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C;
-    break;
-    case '8':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case '9':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case ' ':
-      outputSegCode = 0;
-    break;
-    case 'c':
-      outputSegCode = vfd_segment_G | vfd_segment_E | vfd_segment_D;
-    break;
-    case 'C':
-      outputSegCode = vfd_segment_A | vfd_segment_E | vfd_segment_F | vfd_segment_D;
-    break;
-    case 'u':
-      outputSegCode = vfd_segment_E | vfd_segment_D | vfd_segment_C;
-    break;
-    case 'w':
-      outputSegCode = vfd_segment_D | vfd_segment_C;
-    break;
-    case 'U':
-      outputSegCode = vfd_segment_E | vfd_segment_D | vfd_segment_C | vfd_segment_B | vfd_segment_F;
-    break;
-    case 'W':
-      outputSegCode = vfd_segment_D | vfd_segment_C | vfd_segment_B;
-    break;
-    case 'h':
-      outputSegCode = vfd_segment_F | vfd_segment_E | vfd_segment_G | vfd_segment_C;
-    break;
-    case 'H':
-      outputSegCode = vfd_segment_F | vfd_segment_E | vfd_segment_G | vfd_segment_C | vfd_segment_B;
-      break;
-    case 'o':
-      outputSegCode = vfd_segment_E | vfd_segment_G | vfd_segment_C | vfd_segment_D;
-    break;
-    case 't':
-      outputSegCode = vfd_segment_F | vfd_segment_E | vfd_segment_D | vfd_segment_G;
-    break;
-    case 'r':
-      outputSegCode = vfd_segment_E | vfd_segment_G;
-    break;
-    case 'n':
-      outputSegCode = vfd_segment_E | vfd_segment_G | vfd_segment_C;
-    break;
-    case 'N':
-      outputSegCode = vfd_segment_E | vfd_segment_A | vfd_segment_C | vfd_segment_B | vfd_segment_F;
-    break;
-    case 'M':
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_B;
-    break;
-    case 'm':
-      outputSegCode = vfd_segment_G | vfd_segment_C;
-    break;
-    case 'f':
-      outputSegCode = vfd_segment_A | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'F':
-      outputSegCode = vfd_segment_A | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'i':
-      outputSegCode = vfd_segment_E;
-    break;
-    case 'E':
-      outputSegCode = vfd_segment_A | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'e':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'S':
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case 's':
-      outputSegCode = vfd_segment_A | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'y':
-      outputSegCode = vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'Y':
-      outputSegCode = vfd_segment_B | vfd_segment_C | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'A':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'I':
-      outputSegCode = vfd_segment_B | vfd_segment_C;
-    break;
-    case 'd':
-      outputSegCode = vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_G;
-    break;
-    case 'B':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'b':
-      outputSegCode = vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-    break;
-    case 'L':
-      outputSegCode = vfd_segment_D | vfd_segment_E | vfd_segment_F;
-    break;
-    case '*':
-      outputSegCode = vfd_segment_A | vfd_segment_B | vfd_segment_F | vfd_segment_G;
-    break;
-    //vfd_segment_A | vfd_segment_B | vfd_segment_C | vfd_segment_D | vfd_segment_E | vfd_segment_F | vfd_segment_G;
-  }
-  return outputSegCode;
-}*/
-void readDS3231time(byte *second, byte *minute, byte *hour,
-byte *dayOfWeek, byte *dayOfMonth, byte *month, byte *year) {
-  Wire.beginTransmission(DS3231_I2C_ADDRESS);
-  Wire.write(0); // set DS3231 register pointer to 00h
-  Wire.endTransmission();
-  Wire.requestFrom(DS3231_I2C_ADDRESS, 7);
-  // request seven bytes of data from DS3231 starting from register 00h
-  *second = bcdToDec(Wire.read() & 0x7f);
-  *minute = bcdToDec(Wire.read());
-  *hour = bcdToDec(Wire.read() & 0x3f);
-  *dayOfWeek = bcdToDec(Wire.read());
-  *dayOfMonth = bcdToDec(Wire.read());
-  *month = bcdToDec(Wire.read());
-  *year = bcdToDec(Wire.read());
-}
-void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
-dayOfMonth, byte month, byte year) {
-  // sets time and date data to DS3231
-  Wire.beginTransmission(DS3231_I2C_ADDRESS);
-  Wire.write(0); // set next input to start at the seconds register
-  Wire.write(decToBcd(second)); // set seconds
-  Wire.write(decToBcd(minute)); // set minutes
-  Wire.write(decToBcd(hour)); // set hours
-  Wire.write(decToBcd(dayOfWeek));
-  Wire.write(decToBcd(dayOfMonth)); // set date (1 to 31)
-  Wire.write(decToBcd(month)); // set month
-  Wire.write(decToBcd(year)); // set year (0 to 99)
-  Wire.endTransmission();
-}
-byte decToBcd(byte val) {
-  return( (val/10*16) + (val%10) );
-}
-byte bcdToDec(byte val) {
-  return( (val/16*10) + (val%16) );
-}
-void read_light_level() {
-  if (current_millis - last_light_read > LIGHT_READ_INTERVAL || last_light_read == 0) {
-    last_light_read = current_millis;
-    uint16_t adc_light_level = analogRead(A7);
-    if (adc_light_level < LIGHT_LOW_MAX_VALUE) {
-    //vfd_displayed_characters[0] = '0';
-    light_level = 200; // duty cycle is 0-255, our signal is LOW
-    }
-    else if (adc_light_level < LIGHT_MED_MAX_VALUE) {
-      //vfd_displayed_characters[0] = '1'; 
-      light_level = 100;
-    }
-    else {
-      //vfd_displayed_characters[0] = '2'; 
-      light_level = 0;
-    }
-  }
-}
-float read_adc_to_celsius() {
+float read_adc_to_celsius() {//input
   if (current_millis - last_temp_read > TEMP_READ_INTERVAL || last_temp_read == 0) {
     last_temp_read = current_millis;
     float temp = (analogRead(TEMPERATURE_PIN) * 3.3) / 1024.0;
@@ -1051,7 +678,7 @@ float read_adc_to_celsius() {
     return temp;
   }
 }
-void read_battery_level() {
+void read_battery_level() {//input
   // 5V = 1024, 0V = 0
   // Battery level: above 3.7V: 0, 3.7-3.5: 1, 3.5-3.3: 2, 3.3- 3
   if (current_millis - last_battery_read_millis > BATTERY_READ_INTERVAL || last_battery_read_millis == 0) {
@@ -1068,7 +695,7 @@ void read_battery_level() {
     else battery_level = 3;
   }
 }
-void flash_leds() {
+void flash_leds() {//output
   int led_millis = current_millis - wake_board_millis;
   if (led_millis < LOW_BATTERY_MESSAGE_DISPLAY_DURATION && led_millis % (2*LED_FLASH_INTERVAL) < LED_FLASH_INTERVAL) {
     digitalWrite(LED_1_PIN, HIGH);
@@ -1081,9 +708,4 @@ void flash_leds() {
     digitalWrite(LED_3_PIN, LOW);
     digitalWrite(LED_4_PIN, LOW);
   }
-}
-float celsius_to_fahrenheit(float celsius) {
-  float fh = (celsius * 9.0) / 5.0;
-  fh += 32;
-  return fh;
 }
