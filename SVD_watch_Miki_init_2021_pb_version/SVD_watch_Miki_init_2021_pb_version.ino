@@ -3,34 +3,14 @@
 #include <Wire.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h> 
-#include <functions.h>
+#include "functions.h"
+#include "VFDManager.h"
 
-//#define DS3231_I2C_ADDRESS 0x68 //DS3231
-
-#define vfd_multiplexer_1    OUT4   // 10 h
-#define vfd_multiplexer_2    OUT0   // 1  h
-#define vfd_multiplexer_3    OUT5   // :
-#define vfd_multiplexer_4    OUT7   // 10 min
-#define vfd_multiplexer_5    OUT10  // 1  min
-
-#define LED_1_PIN A1
-#define LED_2_PIN A0
-#define VFD_DATA_PIN 0
-#define VFD_CLK_PIN 1
-#define VFD_LOAD_PIN 2
-//#define VFD_POWER_SWITCH_PIN 3
-#define VFD_BLANK_PIN 4
-#define VFD_HEAT1_PIN 5
-#define VFD_HEAT2_PIN 6
-#define LED_4_PIN 7
-#define LED_3_PIN 8
 #define BUTTON_1_PIN 9
 #define BUTTON_2_PIN 10
 
-
 #define POWERSENSE_PIN A2
 #define BUZZER_PIN 3
-#define VFD_POWER_SWITCH_PIN SDA1
 #define POWER_MEASURE_PIN A7
 #define TEMPERATURE_PIN A6
 
@@ -67,20 +47,13 @@ const uint16_t SLEEP_TIMEOUT_INTERVAL = 5000;
 const uint16_t LIGHT_LOW_MAX_VALUE = 100;
 const uint16_t LIGHT_MED_MAX_VALUE = 200;
 const uint16_t LIGHT_READ_INTERVAL = 1000;
-const uint16_t HIGH_BATTERY_ADC_VALUE    = 302;//3.9    //275 3.7;//285;//760;
-const uint16_t MEDIUM_BATTERY_ADC_VALUE  = 275;//3.7    //248 3.5;//269;
-const uint16_t LOW_BATTERY_ADC_VALUE     = 251;//3.55   //221 3.3;//188;//254;
+const uint16_t HIGH_BATTERY_ADC_VALUE    = 302;//302;//3.9    //275 3.7;//285;//760;
+const uint16_t MEDIUM_BATTERY_ADC_VALUE  = 275;//275;//3.7    //248 3.5;//269;
+const uint16_t LOW_BATTERY_ADC_VALUE     = 251;//251;//3.55   //221 3.3;//188;//254;
 const uint16_t LOW_BATTERY_MESSAGE_DISPLAY_DURATION = 2000;
 const uint16_t LED_FLASH_INTERVAL = 150;
 
-uint16_t char_to_segments(char inputChar);
-void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon);
 void update_button_state();
-//void setDS3231time(byte second, byte minute, byte hour, 
-//byte dayOfWeek, byte dayOfMonth, byte month, byte year);
-//void readDS3231time(byte *second, byte *minute, byte *hour,
-//byte *dayOfWeek, byte *dayOfMonth, byte *month, byte *year);
-void show_displayed_character_array();
 void run_control_state();
 void read_current_time();
 void power_board_down(bool permit_wakeup);
@@ -96,7 +69,6 @@ volatile bool ignore_next_button_release = false;;
 int button_hold_counts[2] = {0, 0};
 
 volatile bool board_sleeping = false;
-volatile bool repower_vfd = false;
 volatile byte battery_level = 0;
 float battery_adc_sum = 0;
 float battery_adc_measurement_count = 0;
@@ -113,24 +85,13 @@ volatile unsigned long wake_board_millis = 0;
 unsigned long current_millis = 0;
 volatile unsigned long last_battery_read_millis = 0;
 int stopwatch_times[4] = {0, 0, 0, 0};
-unsigned long colon_millis = 0;
-//int setting_value_1 = 0;
-//int setting_value_2 = 0;
-bool colon_steady = false;
-byte vfd_current_cell_id = 0;
-int vfd_heat_counter = 0;
-// TODO un-volatile
-char vfd_displayed_characters[5] = {0, 0, 0, 0, 0};
-bool vfd_blinking_noncolon_grids[4] = {false, false, false, false};
-// 0-indexed list, 5th cell is [4]
-const uint16_t vfd_cells[5] = {vfd_multiplexer_1, vfd_multiplexer_2, vfd_multiplexer_3, vfd_multiplexer_4, vfd_multiplexer_5};
 const uint16_t MONTH_LENGTHS[13] = {0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}; 
 
 DS3231Manager ds3231Manager;
+VFDManager vfdManager;
+LEDs leds;
 
 void setup() { //input, output init, setting up interrupts, timers
-  
-  
   
   // Temperature
   pinMode(TEMPERATURE_PIN, INPUT);
@@ -140,29 +101,16 @@ void setup() { //input, output init, setting up interrupts, timers
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
   // Voltage check
   pinMode(A2, INPUT);
-  
-  // LED 1, 2, 3, 4
-  pinMode(LED_1_PIN, OUTPUT);
-  pinMode(LED_2_PIN, OUTPUT);
-  pinMode(LED_3_PIN, OUTPUT);
-  pinMode(LED_4_PIN, OUTPUT);
-  // VFD futes tap
-  pinMode(VFD_POWER_SWITCH_PIN, OUTPUT);
-  digitalWrite(VFD_POWER_SWITCH_PIN, LOW);
-  //pinMode(VFD_POWER_SWITCH_PIN, OUTPUT);
-  // VFD futes pinek
-  pinMode(VFD_HEAT1_PIN, OUTPUT);
-  pinMode(VFD_HEAT2_PIN, OUTPUT);
-  // VFD adat pinek
-  pinMode(VFD_DATA_PIN, OUTPUT);
-  pinMode(VFD_CLK_PIN, OUTPUT);
-  pinMode(VFD_LOAD_PIN, OUTPUT);
-  pinMode(VFD_BLANK_PIN, OUTPUT);
 
   pinMode(POWERSENSE_PIN, INPUT);
   pinMode(POWER_MEASURE_PIN, OUTPUT);
   digitalWrite(POWER_MEASURE_PIN, LOW);
 
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  power_board_down(true);
+}
+
+void setup_interrupt(){
   // Processor timer interrupt setup
   cli(); // Stop existing interrupts
   // Set timer1 interrupt at 50Hz
@@ -178,9 +126,6 @@ void setup() { //input, output init, setting up interrupts, timers
   // enable timer compare interrupt
   TIMSK1 |= (1 << OCIE1A);
   sei(); // Allow interrupts
-
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  power_board_down(true);
 }
 
 void loop() { //the soul, everything
@@ -189,10 +134,11 @@ void loop() { //the soul, everything
   if (battery_level == 4) read_battery_level();
   else if (battery_level == 3) power_board_down(false);
   else {
-    if (!board_sleeping && repower_vfd) {
-      digitalWrite(VFD_POWER_SWITCH_PIN, HIGH);
-      if (battery_level != 2) digitalWrite(VFD_LOAD_PIN, HIGH);
-      repower_vfd = false;
+    if (!board_sleeping && vfdManager.repower) {
+      //digitalWrite(VFD_POWER_SWITCH_PIN, HIGH);
+      vfdManager.turn_on();
+      if (battery_level != 2) digitalWrite(LOAD_PIN, HIGH);//TODO, what is this? VFD-s load pin
+      vfdManager.repower = false;
       wake_board_millis = current_millis;
       last_input_millis = current_millis;
     }
@@ -202,14 +148,14 @@ void loop() { //the soul, everything
       update_button_state();
       read_current_time();
       select_control_state();
-      show_displayed_character_array();
+      vfdManager.show_displayed_character_array();
     }
     if (battery_level == 1 || battery_level == 2) flash_leds();
     
     // End of interactive loop; all necessary input from button has been registered, reset it
     if (button_state != 0) last_input_millis = current_millis;
     button_state = 0;
-    colon_steady = false;
+    vfdManager.colon_steady = false;
     if (current_millis - last_input_millis > SLEEP_TIMEOUT_INTERVAL && !board_sleeping) power_board_down(true);
   }
 }
@@ -250,10 +196,12 @@ void update_button_state() {//button input
     ignore_next_button_release = false;
   }
 }
+
 void read_current_time() { //DS32131
   ds3231Manager.readDS3231time(&current_time[0], &current_time[1], &current_time[2], &current_time[3],
   &current_time[4], &current_time[5], &current_time[6]);
 }
+
 void select_control_state() {
   // Launch relevant state functions
   // Switch states dependent on button state
@@ -309,19 +257,19 @@ void select_control_state() {
       }
       break;
     case ENTER_SETTINGS:
-      update_vfd_char_array(vfd_displayed_characters, "SE t ");
+      vfdManager.update_char_array("SE t ");
       if (button_state == 1) control_state = DISPLAY_TIME;
       else if (button_state == 2) control_state = SETTING_NAME_HOUR;
       break;
     case SETTING_NAME_HOUR:
-      update_vfd_char_array(vfd_displayed_characters, "Ho ur");
+      vfdManager.update_char_array("Ho ur");
       if (button_state == 1) { 
         control_state = SETTING_HOUR;
         setting_value = current_time[2];
       } else if (button_state == 2) control_state = SETTING_NAME_MINUTE;
       break;
     case SETTING_HOUR:
-      update_vfd_char_array(vfd_displayed_characters, setting_value / 10, setting_value % 10, ' ', ' ', ' ');
+      vfdManager.update_char_array(setting_value / 10, setting_value % 10, ' ', ' ', ' ');
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 24) setting_value = 0;
@@ -332,18 +280,18 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_MINUTE:
-      update_vfd_char_array(vfd_displayed_characters, "NN in");
+      vfdManager.update_char_array("NN in");
       if (button_state == 1) { 
         control_state = SETTING_MINUTE;
         setting_value = current_time[1];
       }
       else if (button_state == 2) {
         control_state = SETTING_NAME_DAY_OF_WEEK;
-        vfd_displayed_characters[3] = 'o';
+        vfdManager.displayed_characters[3] = 'o';
       }
       break;
     case SETTING_MINUTE:
-      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', setting_value / 10, setting_value % 10);
+      vfdManager.update_char_array(' ', ' ', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 60) setting_value = 0;
@@ -354,7 +302,7 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_DAY_OF_WEEK:
-      update_vfd_char_array(vfd_displayed_characters, "do UU");
+      vfdManager.update_char_array("do UU");
       if (button_state == 1) { 
         control_state = SETTING_DAY_OF_WEEK;
         setting_value = current_time[3];
@@ -373,7 +321,7 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_DAY_OF_MONTH:
-      update_vfd_char_array(vfd_displayed_characters, "do NN");
+      vfdManager.update_char_array("do NN");
       if (button_state == 1) { 
         control_state = SETTING_DAY_OF_MONTH;
         setting_value = current_time[4];
@@ -381,7 +329,7 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_MONTH;
       break;
     case SETTING_DAY_OF_MONTH:
-      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', setting_value / 10, setting_value % 10);
+      vfdManager.update_char_array(' ', ' ', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == (MONTH_LENGTHS[current_time[5]] + 1)) setting_value = 1;
@@ -394,7 +342,7 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_MONTH:
-      update_vfd_char_array(vfd_displayed_characters, "NN on");
+      vfdManager.update_char_array("NN on");
       if (button_state == 1) { 
         control_state = SETTING_MONTH;
         setting_value = current_time[5];
@@ -402,7 +350,7 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_YEAR;
       break;
     case SETTING_MONTH:
-      update_vfd_char_array(vfd_displayed_characters, setting_value / 10, setting_value % 10, ' ', ' ', ' ');
+      vfdManager.update_char_array(setting_value / 10, setting_value % 10, ' ', ' ', ' ');
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 13) setting_value = 1;
@@ -413,7 +361,7 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_YEAR:
-      update_vfd_char_array(vfd_displayed_characters, "YE Ar");
+      vfdManager.update_char_array("YE Ar");
       if (button_state == 1) { 
         control_state = SETTING_YEAR;
         setting_value = current_time[6];
@@ -421,7 +369,7 @@ void select_control_state() {
       else if (button_state == 2) control_state = SETTING_NAME_TEMPERATURE;
       break;
     case SETTING_YEAR:
-      update_vfd_char_array(vfd_displayed_characters, '2', '0', ' ', setting_value / 10, setting_value % 10);
+      vfdManager.update_char_array('2', '0', ' ', setting_value / 10, setting_value % 10);
       if (button_state == 2) { 
         setting_value += 1;
         if (setting_value == 100) setting_value = 20;
@@ -432,12 +380,12 @@ void select_control_state() {
       }
       break;
     case SETTING_NAME_TEMPERATURE:
-      update_vfd_char_array(vfd_displayed_characters, "tE nn");
+      vfdManager.update_char_array("tE nn");
       if (button_state == 1) control_state = SETTING_TEMPERATURE;
       else if (button_state == 2) control_state = SETTING_NAME_HOUR;
       break;
     case SETTING_TEMPERATURE:
-      update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', '*', temperature_unit);
+      vfdManager.update_char_array(' ', ' ', ' ', '*', temperature_unit);
       if (button_state == 1) {
         control_state = SETTING_NAME_HOUR;
         EEPROM.write(temperature_unit_eeprom_address, temperature_unit);
@@ -451,8 +399,8 @@ void select_control_state() {
   if (button_state == 4) control_state = ENTER_SETTINGS;
   else if (button_state == 3) control_state = STOPWATCH;
   if (battery_level == 1 && current_millis - wake_board_millis < LOW_BATTERY_MESSAGE_DISPLAY_DURATION) {
-    update_vfd_char_array(vfd_displayed_characters, "BA Lo");
-  }
+    vfdManager.update_char_array("BA Lo");
+  }  
 }
 
 void display_stopwatch() {//display
@@ -461,47 +409,48 @@ void display_stopwatch() {//display
     char elapsed_minutes = elapsed_seconds / 60;
     if (elapsed_minutes > 99) elapsed_minutes = 99;
     char remaining_seconds = elapsed_seconds % 60;
-    update_vfd_char_array(vfd_displayed_characters, elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
+    vfdManager.update_char_array(elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
   } else if (stopwatch_times[0] != 0 || stopwatch_times[1] != 0 || stopwatch_times[2] != 0){
-    colon_steady = true;
+    vfdManager.colon_steady = true;
     int elapsed_seconds = (stopwatch_times[2] * 3600) + (stopwatch_times[1] * 60) + stopwatch_times[0];
     char elapsed_minutes = elapsed_seconds / 60;
     if (elapsed_minutes > 99) elapsed_minutes = 99;
     char remaining_seconds = elapsed_seconds % 60;
-    update_vfd_char_array(vfd_displayed_characters, elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
+    vfdManager.update_char_array(elapsed_minutes / 10, elapsed_minutes % 10, 1, remaining_seconds / 10, remaining_seconds % 10);
   
   } else {
-    colon_steady = true;
-    update_vfd_char_array(vfd_displayed_characters, 0, 0, 1, 0, 0);
+    vfdManager.colon_steady = true;
+    vfdManager.update_char_array(0, 0, 1, 0, 0);
   
   }
 }
+
 void display_hour_minute() {//display
   char hour_digit_1   = current_time[2] / 10;
   char hour_digit_2   = current_time[2] % 10;
   char minute_digit_1 = current_time[1] / 10;
   char minute_digit_2 = current_time[1] % 10;
-  update_vfd_char_array(vfd_displayed_characters, hour_digit_1, hour_digit_2, 1, minute_digit_1, minute_digit_2);
+  vfdManager.update_char_array(hour_digit_1, hour_digit_2, 1, minute_digit_1, minute_digit_2);
 }
 
 void display_date() {//display
-  colon_steady = true;
+  vfdManager.colon_steady = true;
   char month_digit_1   = current_time[5] / 10;
   char month_digit_2   = current_time[5] % 10;
   char day_of_month_digit_1 = current_time[4] / 10;
   char day_of_month_digit_2 = current_time[4] % 10;
-  update_vfd_char_array(vfd_displayed_characters, month_digit_1, month_digit_2, 1, day_of_month_digit_1, day_of_month_digit_2);
+  vfdManager.update_char_array(month_digit_1, month_digit_2, 1, day_of_month_digit_1, day_of_month_digit_2);
 }
 
 void display_seconds() {//display
   char seconds_digit_1 = current_time[0] / 10;
   char seconds_digit_2 = current_time[0] % 10;
-  update_vfd_char_array(vfd_displayed_characters, ' ', ' ', ' ', seconds_digit_1, seconds_digit_2);
+  vfdManager.update_char_array(' ', ' ', ' ', seconds_digit_1, seconds_digit_2);
 }
 
 char* days_of_week[]= {"NN on", "tu E ", "UU Ed", "th u ", "Fr i ", "SA t ", "Su n "};
 void display_day_of_week(byte day) {//display
-  update_vfd_char_array(vfd_displayed_characters, days_of_week[day-1]);
+  vfdManager.update_char_array(days_of_week[day-1]);
 }
 
 void display_temperature() {//display and get temp
@@ -511,14 +460,14 @@ void display_temperature() {//display and get temp
     uint8_t fh_hundreds = current_temp / 100;
     uint8_t fh_tens     = int(current_temp / 10) % 10;
     uint8_t fh_ones     = int(current_temp)  % 10;
-    update_vfd_char_array(vfd_displayed_characters, fh_hundreds, fh_tens, ' ', fh_ones, ' ');
+    vfdManager.update_char_array(fh_hundreds, fh_tens, ' ', fh_ones, ' ');
   } else {
-    colon_steady = true;
+    vfdManager.colon_steady = true;
     uint8_t celsius_tens   = current_temp / 10;
     uint8_t celsius_ones   = int(current_temp) % 10;
-    update_vfd_char_array(vfd_displayed_characters, celsius_tens, celsius_ones, ' ', '*', ' ');
+    vfdManager.update_char_array(celsius_tens, celsius_ones, ' ', '*', ' ');
   }
-  vfd_displayed_characters[4] = temperature_unit;
+  vfdManager.displayed_characters[4] = temperature_unit;
 }
 
 // This function runs when the board's sleep is interrupted by button 1 press
@@ -528,7 +477,7 @@ ISR(PCINT0_vect) {    // wake up
   // This button press should not be processed for normal state changes
   if (board_sleeping) {
     ignore_next_button_release = true;
-    repower_vfd = true;
+    vfdManager.repower = true;
     board_sleeping = false;
     battery_level = 4;
     sleep_disable();
@@ -566,18 +515,10 @@ void power_board_down(bool permit_wakeup) {//saving data, turning down GPIO pins
     case SETTING_TEMPERATURE:
       EEPROM.write(temperature_unit_eeprom_address, temperature_unit);
       break;
-  }
-  digitalWrite(LED_1_PIN, LOW);
-  digitalWrite(LED_2_PIN, LOW);
-  digitalWrite(LED_3_PIN, LOW);
-  digitalWrite(LED_4_PIN, LOW);
-  digitalWrite(VFD_CLK_PIN, LOW);
-  digitalWrite(VFD_LOAD_PIN, LOW);
-  digitalWrite(VFD_DATA_PIN, LOW);
-  digitalWrite(VFD_BLANK_PIN, LOW);
-  digitalWrite(VFD_POWER_SWITCH_PIN, LOW);
-  digitalWrite(VFD_HEAT1_PIN, LOW);
-  digitalWrite(VFD_HEAT2_PIN, LOW);
+  };
+
+  leds.turn_off();
+  vfdManager.turn_off();
   digitalWrite(POWER_MEASURE_PIN, LOW);
   board_sleeping = true;
   battery_adc_sum = 0;
@@ -603,72 +544,6 @@ void power_board_down(bool permit_wakeup) {//saving data, turning down GPIO pins
   sleep_cpu();                   //go to sleep
 }
 
-void show_displayed_character_array() {//display
-  if (vfd_current_cell_id == 2) {
-    vfd_current_cell_id += 1;
-}
-  bool include_colon = ((current_millis - colon_millis) < COLON_BLINK_PERIOD || colon_steady) && vfd_displayed_characters[2] != ' ';
-  // Group the colon light with turning on grid 3, grid 1 if 3 is empty
-  if (vfd_displayed_characters[3] == ' ') {
-    if (vfd_current_cell_id != 1) include_colon = false;
-  } else if (vfd_current_cell_id != 3) include_colon = false;
-  
-  set_vfd_cell(vfd_current_cell_id, vfd_displayed_characters[vfd_current_cell_id], include_colon);
-  vfd_current_cell_id += 1;
-  if (current_millis - colon_millis > 2 * COLON_BLINK_PERIOD) colon_millis = current_millis;
-  if (vfd_current_cell_id == 5) vfd_current_cell_id = 0;
-}
-
-ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
-  int percent = 80;
-  int secondd = 10;
-  int last = 20;
-  int first = secondd * percent / 100;
-  int third = last * percent /100 ;
-  if ((vfd_heat_counter >= first && vfd_heat_counter < secondd) || vfd_heat_counter >= third){
-    digitalWrite(VFD_HEAT1_PIN, LOW);
-    digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter < first) {
-    digitalWrite(VFD_HEAT1_PIN, HIGH);
-    digitalWrite(VFD_HEAT2_PIN, LOW);
-  } else if (vfd_heat_counter >= secondd && vfd_heat_counter < third){
-    digitalWrite(VFD_HEAT1_PIN, HIGH);
-    digitalWrite(VFD_HEAT2_PIN, LOW);
-  }
-  vfd_heat_counter += 1;
-  if (vfd_heat_counter == last) {
-      vfd_heat_counter = 0;
-  }
-}
-
-void set_vfd_cell(uint8_t cell_num, char character_to_set, bool include_colon) {//display
-  if (cell_num > 4) return;
-  uint16_t segment_pattern = char_to_segments(character_to_set);
-  segment_pattern |= vfd_cells[cell_num];
-  if (include_colon) segment_pattern |= vfd_cells[2];
-  digitalWrite(VFD_BLANK_PIN, HIGH);
-  bool out_bit = 0;
-  for (char i = 0; i < 12; i++) {
-    out_bit = 1 & (segment_pattern >> i);
-    // Load data to pin
-    if (out_bit) digitalWrite(VFD_DATA_PIN, HIGH);
-    else digitalWrite(VFD_DATA_PIN, LOW);
-    // Trigger write: CLK pin High->Low
-    digitalWrite(VFD_LOAD_PIN, LOW);
-    digitalWrite(VFD_LOAD_PIN, HIGH);
-    digitalWrite(VFD_CLK_PIN, HIGH);
-    digitalWrite(VFD_CLK_PIN, LOW);
-    // Trigger shift: LOAD pin Low->High
-    
-  }
-  // Show output to display
-  /*if (light_level == 0) digitalWrite(4, LOW);
-  else analogWrite(4, light_level);*/
-  analogWrite(VFD_BLANK_PIN, light_level);
-  //digitalWrite(VFD_BLANK_PIN, LOW);
-  
-}
-
 float read_adc_to_celsius() {//input
   if (current_millis - last_temp_read > TEMP_READ_INTERVAL || last_temp_read == 0) {
     last_temp_read = current_millis;
@@ -678,6 +553,7 @@ float read_adc_to_celsius() {//input
     return temp;
   }
 }
+
 void read_battery_level() {//input
   // 5V = 1024, 0V = 0
   // Battery level: above 3.7V: 0, 3.7-3.5: 1, 3.5-3.3: 2, 3.3- 3
@@ -695,17 +571,16 @@ void read_battery_level() {//input
     else battery_level = 3;
   }
 }
+
 void flash_leds() {//output
   int led_millis = current_millis - wake_board_millis;
   if (led_millis < LOW_BATTERY_MESSAGE_DISPLAY_DURATION && led_millis % (2*LED_FLASH_INTERVAL) < LED_FLASH_INTERVAL) {
-    digitalWrite(LED_1_PIN, HIGH);
-    digitalWrite(LED_2_PIN, HIGH);
-    digitalWrite(LED_3_PIN, HIGH);
-    digitalWrite(LED_4_PIN, HIGH);
+    leds.turn_on();
   } else if (led_millis < LOW_BATTERY_MESSAGE_DISPLAY_DURATION) {
-    digitalWrite(LED_1_PIN, LOW);
-    digitalWrite(LED_2_PIN, LOW);
-    digitalWrite(LED_3_PIN, LOW);
-    digitalWrite(LED_4_PIN, LOW);
+    leds.turn_off();
   }
+}
+
+ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
+  vfdManager.heating();
 }
