@@ -896,9 +896,9 @@ void flash_leds() {
     digitalWrite(LED_3_PIN, LOW);
     digitalWrite(LED_4_PIN, LOW);
   }
-}
+}/*
 float celsius_to_fahrenheit(float celsius) {
   float fh = (celsius * 9.0) / 5.0;
   fh += 32;
   return fh;
-}
+}*/

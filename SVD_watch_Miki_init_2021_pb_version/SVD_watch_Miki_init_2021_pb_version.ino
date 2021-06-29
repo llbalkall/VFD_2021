@@ -100,9 +100,8 @@ void setup() { //input, output init, setting up interrupts, timers
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);   // PCINT 1
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
   // Voltage check
-  pinMode(A2, INPUT);
-
   pinMode(POWERSENSE_PIN, INPUT);
+  
   pinMode(POWER_MEASURE_PIN, OUTPUT);
   digitalWrite(POWER_MEASURE_PIN, LOW);
 
@@ -173,7 +172,8 @@ void update_button_state() {//button input
     button_2_released = true;
     button_hold_counts[1] = 0;
   }
-
+  // States: 0 - nothing pressed, 1 - #1 pressed and released, 2 - #2 pressed and released
+  // 3 - #1 held, 4 - #2 held, 5 - both held
   if (button_hold_counts[0] > BUTTON_HOLD_DURATION_MINIMUM &&
       button_hold_counts[1] > BUTTON_HOLD_DURATION_MINIMUM) {
     button_state = 5;
@@ -582,5 +582,19 @@ void flash_leds() {//output
 }
 
 ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
-  vfdManager.heating();
+  //vfdManager.heating();
+  if ((vfdManager.heat_counter >= 4 && vfdManager.heat_counter < 10) || vfdManager.heat_counter >= 14){
+    digitalWrite(HEAT1_PIN, LOW);
+    digitalWrite(HEAT2_PIN, LOW);
+  } else if (vfdManager.heat_counter < 4) {
+    digitalWrite(HEAT1_PIN, HIGH);
+    digitalWrite(HEAT2_PIN, LOW);
+  } else if (vfdManager.heat_counter >= 10 && vfdManager.heat_counter < 14){
+    digitalWrite(HEAT1_PIN, HIGH);
+    digitalWrite(HEAT2_PIN, LOW);
+  }
+  vfdManager.heat_counter += 1;
+  if (vfdManager.heat_counter == 20) {
+      vfdManager.heat_counter = 0;
+  }
 }

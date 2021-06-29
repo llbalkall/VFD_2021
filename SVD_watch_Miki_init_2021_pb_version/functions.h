@@ -32,6 +32,4 @@ class LEDs{
         void turn_off();
 };
 
-
-
 #endif

@@ -45,9 +45,10 @@ class VFDManager{
         const short COLON_BLINK_PERIOD = 250;
         unsigned char current_cell_id;
         unsigned long colon_millis;
-        int heat_counter;
+        
 
     public:
+        int heat_counter;
         bool repower;
         bool colon_steady;
         char displayed_characters[5];
