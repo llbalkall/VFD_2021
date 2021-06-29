@@ -57,7 +57,7 @@ class VFDManager{
         unsigned int char_to_segments(char inputChar);
         void update_char_array(char* characters);
         void update_char_array(char c1, char c2, char c3, char c4, char c5);
-        void show_displayed_character_array();
+        void show_displayed_character_array(unsigned long current_millis);
         void heating();
         void turn_on();
         void turn_off();

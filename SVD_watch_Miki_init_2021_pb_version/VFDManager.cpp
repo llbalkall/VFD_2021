@@ -82,11 +82,11 @@ void VFDManager::update_char_array(char c1, char c2, char c3, char c4, char c5){
   displayed_characters[4] = c5;
 }
 
-void VFDManager::show_displayed_character_array() {//display
+void VFDManager::show_displayed_character_array(unsigned long current_millis) {//display
   if (current_cell_id == 2) {
     current_cell_id += 1;
   }
-  unsigned long current_millis = millis(); //TODO 
+  //unsigned long current_millis = millis(); //TODO 
   bool include_colon = ((current_millis - colon_millis) < COLON_BLINK_PERIOD || colon_steady) && displayed_characters[2] != ' ';
   // Group the colon light with turning on grid 3, grid 1 if 3 is empty
   if (displayed_characters[3] == ' ') {

@@ -147,7 +147,7 @@ void loop() { //the soul, everything
       update_button_state();
       read_current_time();
       select_control_state();
-      vfdManager.show_displayed_character_array();
+      vfdManager.show_displayed_character_array(current_millis);
     }
     if (battery_level == 1 || battery_level == 2) flash_leds();
     
@@ -582,8 +582,8 @@ void flash_leds() {//output
 }
 
 ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
-  //vfdManager.heating();
-  if ((vfdManager.heat_counter >= 4 && vfdManager.heat_counter < 10) || vfdManager.heat_counter >= 14){
+  vfdManager.heating();
+  /*if ((vfdManager.heat_counter >= 4 && vfdManager.heat_counter < 10) || vfdManager.heat_counter >= 14){
     digitalWrite(HEAT1_PIN, LOW);
     digitalWrite(HEAT2_PIN, LOW);
   } else if (vfdManager.heat_counter < 4) {
@@ -596,5 +596,5 @@ ISR(TIMER1_COMPA_vect){ //timer1 interrupt 50Hz toggles pin 5, 6
   vfdManager.heat_counter += 1;
   if (vfdManager.heat_counter == 20) {
       vfdManager.heat_counter = 0;
-  }
+  }*/
 }
